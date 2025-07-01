@@ -1,17 +1,16 @@
-name: 'Restart Instance every 6 day'
-##### UNCOMENT HERE
+name: 'Immediate Restart OCI Instance'
+
 on:
-  #schedule:
-  #  - cron: "0 1 1-30/6 * *"
-  push:
-    branches: [ "main"]
-  # pull_request:
+  workflow_dispatch: # 수동 실행 가능 (가장 권장)
+  # push:             # 푸시 시 자동 실행 (프로덕션 환경에서는 주의 필요)
+  #   branches: [ "main" ]
+
 permissions:
-  contents: read
+  contents: read # OCI CLI 실행에 직접적인 영향 없음
+
 jobs:
-  my-instances:
+  restart-instance:
     runs-on: ubuntu-latest
-    name: Restart Instance every 6 day
     env:
       OCI_CLI_USER: ${{ secrets.OCI_CLI_USER }}
       OCI_CLI_TENANCY: ${{ secrets.OCI_CLI_TENANCY }}
@@ -19,12 +18,40 @@ jobs:
       OCI_CLI_KEY_CONTENT: ${{ secrets.OCI_CLI_KEY_CONTENT }}
       OCI_CLI_REGION: ${{ secrets.OCI_CLI_REGION }}
       OCI_INSTANCE_ID: ${{ secrets.OCI_INSTANCE_ID }}
+
     steps:
-      - name: oci restart ${{ OCI_INSTANCE_ID }}
+      - name: Restart OCI Instance (SOFTRESET)
         uses: oracle-actions/run-oci-cli-command@v1.1.1
         id: restart_instance
         with:
-          command: 'compute instance action --instance-id ${{ OCI_INSTANCE_ID }} --action SOFTRESET'
-      - name: Show output
+          # OCI CLI 명령에서 직접 JSON 출력을 `--query`로 필터링하는 것을 고려
+          # 예를 들어, 인스턴스 상태만 보고 싶다면:
+          # command: 'compute instance action --instance-id $OCI_INSTANCE_ID --action SOFTRESET --query "data.lifecycle-state"'
+          # 또는 전체 JSON 출력을 그대로 받으려면:
+          command: 'compute instance action --instance-id $OCI_INSTANCE_ID --action SOFTRESET'
+          # print_output: true # 기본값이 true이므로 명시적으로 설정하지 않아도 됨
+
+      - name: Verify Instance State (Optional, but Recommended)
+        # 인스턴스 재시작 요청 후 실제 상태를 확인하는 단계 추가
         run: |
-          echo ${{ steps.restart_instance.outputs.output }} | jq .
+          echo "Waiting for instance to be in RUNNING state after SOFTRESET..."
+          # OCI CLI를 사용하여 인스턴스 상태를 폴링 (예: 2분 동안 10초마다 확인)
+          # `--query` 옵션을 사용하면 필요한 정보만 추출할 수 있어 jq보다 효율적입니다.
+          for i in $(seq 1 12); do # 12 * 10초 = 120초 (2분)
+            STATE=$(oci compute instance get --instance-id $OCI_INSTANCE_ID --query "data.\"lifecycle-state\"" --raw-output)
+            echo "Current state: $STATE"
+            if [ "$STATE" == "RUNNING" ]; then
+              echo "Instance is RUNNING."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Instance did not return to RUNNING state within 2 minutes."
+          exit 1 # 실패로 워크플로우 종료
+
+      - name: Show Full OCI CLI Output (Restart Command)
+        # restart_instance 스텝의 전체 JSON 출력을 깔끔하게 표시
+        run: |
+          echo "Full output from restart command:"
+          echo '${{ steps.restart_instance.outputs.output }}' | jq .
+        # 작은따옴표로 감싸서 쉘 파싱 오류 방지
