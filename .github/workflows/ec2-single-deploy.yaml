@@ -5,14 +5,14 @@ permissions:
   security-events: write  # CodeQL 결과를 업로드하기 위한 권한
   actions: read
 
-on:
-  push:
-    branches: ["main"]
-    paths:
-      - 'xinfra/ec2-single/**'
-      - '.github/workflows/ec2-single-deploy.yml'
-      - 'scripts/**'
-      - 'appspec.yml'
+#on:
+#  push:
+#    branches: ["main"]
+#    paths:
+#      - 'xinfra/ec2-single/**'
+#      - '.github/workflows/ec2-single-deploy.yml'
+#      - 'scripts/**'
+#      - 'appspec.yml'
 jobs:
   build-and-upload:
     runs-on: ubuntu-latest
